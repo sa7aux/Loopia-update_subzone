@@ -1,0 +1,109 @@
+#!bin/python3
+# -*- coding: utf-8 -*-
+
+import os
+import json
+import argparse
+from xmlrpc import client as xmlclient
+
+def main():
+    username = 'youruser@loopiaapi'
+    password = 'yourapipassword'
+    domain = 'yourdomain.org'
+    subdomain = 'subzone'
+
+    parser = argparse.ArgumentParser(description="HELP", formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument("-v", "--verbose", action="store_true", help="increase verbosity")
+    parser.add_argument("-W", "--www", action="store_true", help="use www to find ip")
+    parser.add_argument("-I", "--interface", help="interface you will use to collect ip")
+    args = parser.parse_args()
+    config = vars(args)
+
+    global_domain_server_url = 'https://api.loopia.se/RPCSERV' 
+
+    client = xmlclient.ServerProxy(uri = global_domain_server_url, encoding = 'utf-8')
+    if config['interface'] != None and not config['www']:
+        print('körs----------------------------')
+        stream = os.popen('ip --json --brief address show '+config['interface'])
+        #stream = os.popen('ip --json --brief address show')
+        js = stream.read()
+
+        jd = json.loads(js)
+        if config['verbose']:
+            print(jd)
+
+        for p in jd:
+            l = p['addr_info']
+            for q in l:
+                if '.' in q['local']:
+                    if not q['local'].startswith('127') and not q['local'].startswith('192.168') and not q['local'].startswith('10.'):
+                        if q['local'].startswith('172'):
+                            qq =  q['local'].split('.')
+                            nr = int(qq[1])
+                            if not nr >= 16 and not nr <= 31:
+                                if config['verbose']:
+                                    print(nr, qq)
+                        else:
+                            if q['local'].startswith('100'):
+                                qq =  q['local'].split('.')
+                                nr = int(qq[1])
+                                if not nr >= 64 and not nr <= 127:
+                                    if config['verbose']:
+                                        print('100 addr')
+                            else:
+                                if config['verbose']:
+                                    print('ipv4 ',q['local'])
+                                a = q['local']
+                if ':' in q['local']:
+                    if not q['local'].startswith('fe80') and not q['local'].startswith('::1'):
+                        if config['verbose']:
+                            print('ipv6 ',q['local'])
+                        aaaa = q['local']
+
+        domain_data = client.getZoneRecords(username, password, domain, subdomain)
+        if config['verbose']:
+            print(domain_data)
+        for dd in domain_data:
+            if config['verbose']:
+                print(dd)
+                print(dd['rdata'])
+            if '.' in dd['rdata']:
+                if dd['rdata'] != a:
+                    dd['rdata'] =a
+                    status = client.updateZoneRecord(username, password, domain, subdomain, dd)
+                    #if config['verbose']:
+                    print(status)
+            else:
+                if ':' in dd['rdata']:
+                    if dd['rdata'] != aaaa:
+                        dd['rdata'] = aaaa
+                        status = client.updateZoneRecord(username, password, domain, subdomain, dd)
+                        print(status)
+                        if config['verbose']:
+                            print('a    :', a)
+                            print('aaaa :', aaaa)
+    if config['www'] and config['interface'] == None:
+        stream = os.popen('curl -s https://icanhazip.com')
+        ipv4 = stream.read()
+        stream = os.popen('curl -s -6 https://ipv6.icanhazip.com')
+        ipv6 = stream.read()
+        domain_data = client.getZoneRecords(username, password, domain, subdomain)
+        for dd in domain_data:
+            if '.' in dd['rdata']:
+                if dd['rdata'] != ipv4:
+                    dd['rdata'] = ipv4
+                    status = client.updateZoneRecord(username, password, domain, subdomain, dd)
+            else:
+                if ':' in dd['rdata']:
+                    if dd['rdata'] != ipv6:
+                        dd['rdata'] = ipv6
+                        status = client.updateZoneRecord(username, password, domain, subdomain, dd)
+            
+    if config['www'] and config['interface'] != None:
+        print("You can't have both -I and -W :(")   
+
+    if not config['www'] and config['interface'] == None:
+        print("Have you forget something? -I or -W :(")   
+                 
+if __name__ == '__main__':
+    main()
